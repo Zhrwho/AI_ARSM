@@ -1,0 +1,4 @@
+2026-05-12 15:32:57.691 DEBUG Test/log_test.cpp:7this is debug
+2026-05-12 15:32:57.691 INFO Test/log_test.cpp:8this is info
+2026-05-12 15:32:57.691 WARN Test/log_test.cpp:9this is warn
+2026-05-12 15:32:57.691 INFO Test/log_test.cpp:14id = 100 name = TOM

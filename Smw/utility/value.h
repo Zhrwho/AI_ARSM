@@ -1,73 +1,85 @@
 /**
  * @brief: 自定义的一个value类 支持 int double string bool转换
+ * 实现类型强转
+1、存储m_sections里的不同数据类型，都以字符串类型存储到Value的m_value里面；
+2、当用户需要取出来时（不同的数据类型），实现Value类强转为不同数据类型的功能；
 */
-
+#pragma once
 #include <string>
-
-// class Value
-// {
-// public:
-//     Value & operator = (const std::string & value);
-
-//     operator std::string();
-
-    
-// private:
-//     std::string m_value;
-            
-// };
-
-#ifndef VALUE_H
-#define VALUE_H
-
-#include <string>
-#include <sstream>
+#include <iostream>
 
 class Value
 {
 public:
-    Value() = default;
+    /* 枚举记录原始类型 */
+    enum Type
+    {
+        V_NULL = 0,
+        V_BOOL,
+        V_INT,
+        V_DOUBLE,
+        V_STRING
+    };
 
-    // ✅ 支持 string
-    Value(const std::string& str) : m_str(str) {}
+    /**
+     * 构造函数，对应实现多种参数类型的构造
+     */
+    Value();
+    Value(bool value);
+    Value(int value);
+    Value(double value);
+    Value(const char* value); /* C风格字符串 */
+    Value(const std::string& value);
+    ~Value();
 
-    // ✅【关键修复】支持 const char*（比如 "inserted" / "false"）
-    Value(const char* str) : m_str(str) {}
+    /* 获取当前Value类型 */
+    Type get_type() const;
+    /* 设置Value类型 */
+    void set_type(Type type);
+    /* 判断类型，const表示判断类型不应该修改对象 */
+    /* 在强转前先判断，避免报错 */
+    bool Type_isnull() const;
+    bool Type_isint() const;
+    bool Type_isdouble() const;
+    bool Type_isstring() const;
 
-    // 赋值 string
-    Value& operator=(const std::string& str) {
-        m_str = str;
-        return *this;
-    }
+    /**
+     * 定义:把其他类型赋值给Value
+     * 赋值运算符重载
+     * 返回值：引用别名，减少一次对象拷贝
+     */
+    Value& operator = (bool value);
+    Value& operator = (int value);
+    Value& operator = (double value);
+    Value& operator = (const char* value);
+    /* ini_file里面的string类型的value赋值给Value类*/
+    /* string& 地址传递，不用拷贝，节省，同时加个const保证了不修改变量*/
+    Value& operator = (const std::string& value);
+    /* 拷贝赋值运算符重载！！ Value a,Value b  a = b*/
+    Value& operator = (const Value& value);
 
-    // 赋值 const char*
-    Value& operator=(const char* str) {
-        m_str = str;
-        return *this;
-    }
+    /* 运算符重载 */
+    bool operator == (const Value& other);
+    bool operator != (const Value& other);
 
-    // 强转 string（你 to_str 要用）
-    operator std::string() const {
-        return m_str;
-    }
-
-    std::string toString() const {
-        return m_str;
-    }
-
-    int toInt() const {
-        int v;
-        std::stringstream ss(m_str);
-        ss >> v;
-        return v;
-    }
-
-    bool toBool() const {
-        return m_str == "true" || m_str == "1";
-    }
-
+    /**
+     * 隐式地转换为 int类型 和 double 类型
+     * 将Value类型，强转为其他类型
+     * 重载了强转类型
+     * 外部用户需要啥类型就转化成啥类型
+     * 因此：
+    Value v = 123;
+    int x = v;
+    double d = v;
+    string s = v;
+     */
+    operator int();
+    operator double();
+    operator bool();
+    operator std::string();
+    operator std::string() const;
+    
 private:
-    std::string m_str;
+    std::string m_value; //存数据
+    Type m_type; //用于记录这个字符串原本是什么类型
 };
-
-#endif

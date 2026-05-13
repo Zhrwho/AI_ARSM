@@ -103,6 +103,15 @@ using std::string;
                     string value = trim(line.substr(pos + 1, line.size() - pos - 1));
                     value = trim(value);
                     /* 存到了Value 类里面 */
+                    /* 调用赋值运算符重载 */
+                    /**
+                    Value & Value::operator = (const std::string & value)
+                    {
+                        m_type = V_STRING;
+                        m_value = value;
+                        return *this;
+                    }
+                     */
                     m_sections[section][key] = value;
                 }
             }

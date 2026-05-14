@@ -1,6 +1,8 @@
 /**
  * @brief: 自定义的一个value类 支持 int double string bool转换
  * 实现类型强转
+1、存储m_sections里的不同数据类型，都以字符串类型存储到Value的m_value里面；
+2、当用户需要取出来时（不同的数据类型），实现Value类强转为不同数据类型的功能；
 */
 #include <stdlib.h>
 #include <sstream>

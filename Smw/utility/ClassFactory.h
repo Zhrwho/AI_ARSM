@@ -62,7 +62,7 @@ public:
     /*等价于： using AbstractClassFactory<Base>::AbstractClassFactory; 
     即 父类作用域中的构造函数 */
 
-    /* 真正创建对象！！*/
+    /* 真正创建对象！！由子类工厂创建,可创建多个对象*/
     std::unique_ptr<Base> CreateObj() const override{
         /* make_unique安全创建对象，就是new Derived() */
         return std::make_unique<Derived>();
@@ -115,7 +115,7 @@ std::unique_ptr<Base> CreateObject(const std::string& className) {
     /* 将基类工厂指针 转换为 对应基类的工厂指针 安全向下转型 */
     /* map的类型：unordered_map< string, unique_ptr<AbstractClassFactoryBase>>*/
     /* dynamic_cast 把 AbstractClassFactoryBase*转化成 AbstractClassFactory<Animal>* */
-    /* 然后在从爸爸类接口里面去CreateObj 虚函数动态绑定 */
+    /* 然后在从父类接口里面去CreateObj 虚函数动态绑定 */
     /* .get() 是智能指针中，去除里面保存的原始裸指针函数 */
     auto* factory = dynamic_cast<const AbstractClassFactory<Base>*>(it->second.get());
     /* 检查转换类型是否成功，例如传入CreateObject<Animal>("Car")
@@ -150,9 +150,12 @@ static ProxyType##UniqueID g_register_class_##UniqueID;               \
 #define CLASS_LOADER_REGISTER_CLASS_INTERNAL_1(Derived, Base, UniqueID) \
     CLASS_LOADER_REGISTER_CLASS_INTERNAL(Derived, Base, UniqueID)
 
-// 对外使用的宏
-// register class macro 通过宏，实现自动注册
-/* COUNTER 编译器提供的递增整数，表示唯一ID */
+/**
+ * @brief 工厂注册宏
+ * @param Derived 子类名称
+ * @param Base 基类名称
+ * COUNTER 编译器提供的递增整数，表示唯一ID 
+ */
 #define CLASS_LOADER_REGISTER_CLASS(Derived, Base) \
     CLASS_LOADER_REGISTER_CLASS_INTERNAL_1(Derived, Base, __COUNTER__)
 

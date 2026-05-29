@@ -147,7 +147,17 @@ void Logger::log(Level level, const char* file, int line, const char* format, ..
     const string& str = oss.str();
 
     /* 是否打印到屏幕 */
-    if(m_console) std::cout << str << std::endl;
+    /* 如果是错误信息那就通过错误输出 */
+
+    if(m_console) 
+    {
+        if(level >= LOG_ERROR)
+            std :: cerr << str << std::endl;
+        else
+            std::cout << str << std::endl;
+    }
+
+
     /* 写入log 文件,m_fout是ofstream文件输出流 */
     m_fout << str;
     m_fout.flush();//强制把缓冲区写入磁盘

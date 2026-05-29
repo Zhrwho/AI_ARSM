@@ -87,6 +87,7 @@ private:
     int m_max = 0;//最大日志大小
     int m_len = 0;
     int m_level = LOG_DEBUG;
+    //默认过滤的日志等级
     bool m_console = true;
     static const char* s_level[LOG_COUNT];
 };

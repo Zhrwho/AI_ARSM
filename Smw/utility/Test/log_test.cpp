@@ -2,7 +2,7 @@
 
 int main()
 {
-    Logger_Init("Test/test.txt");
+    Logger_Init("test.txt");
 
     log_debug("this is debug");
     log_info("this is info");

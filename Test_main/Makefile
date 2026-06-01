@@ -1,62 +1,60 @@
-#总体意思:自动搜索 ../common/*.cpp 和 test_*.cpp 自动生成test_xxx
-
-#编译器是g++  $(CXX)就等价于g++
+#编译器
 CXX      := g++
-
-#编译选项使用C++14, -Wall打开常见警告 -Wextra打开更多警告
-# $(CXXFLAGS) 就等价于 -std=c++14 -Wall -Wextra
 CXXFLAGS := -std=c++14 -Wall -Wextra
+LDFLAGS  := -pthread
 
-#源码目录 即../common(放cpp文件)
-SRCDIR   := ../common
+# 源文件目录
+UTILITY_DIR := ../Smw/utility
 
-# wildcard搜索匹配文件 保存所有 所有SRCDIR目录下的cpp文件列表
-SRCS     := $(wildcard $(SRCDIR)/*.cpp)
+# 公共源文件
+COMMON_SRCS := \
+	$(UTILITY_DIR)/Logger.cpp \
+	$(UTILITY_DIR)/CurrentThread.cpp \
+	$(UTILITY_DIR)/Thread.cpp \
+	$(UTILITY_DIR)/EventLoop.cpp \
+	$(UTILITY_DIR)/EventLoopThread.cpp \
+	$(UTILITY_DIR)/EventLoopThreadPool.cpp
 
-# $(patsubst %.cpp,% , ...) 把.cpp去掉
-# $(wildcard test_*.cpp) 搜索 test_xxx.cpp
-# 意思TESTS就是去掉cpp后缀
-TESTS    := $(patsubst %.cpp,%,$(wildcard test_*.cpp))
+.PHONY: all main test_main test_subloop clean
 
-#声明 all single clean 不是文件，是命令,永远执行
-#则,make all 永远执行
-.PHONY: all single clean
+all: main
 
-# all 依赖于 $(TESTS) 里的所有目标
-# make all 时会自动构建全部测试
-all: $(TESTS)
-
-# 编译单个测试：make single NAME=test_classfactory
-single:
-#如果没有定义 NAME
-ifndef NAME
-	#报错并停止
-	$(error 请指定测试名，例如: make single NAME=test_classfactory)
-endif
-	#执行编译命令,与最上面的对应
-	$(CXX) $(CXXFLAGS) $(SRCS) $(NAME).cpp -o $(NAME)
-	
-#模式规则,任何目标，都可以由同名 cpp 编译得到
-%: %.cpp $(SRCS)
-	$(CXX) $(CXXFLAGS) $(SRCS) $< -o $@
-
-# 把多个 cpp 编译并链接成最终程序
-# g++ 源文件 编译选项 链接库 输出文件
+# 主程序
 main:
-	g++ main.cpp \
-		../Smw/utility/ClassFactory.cpp \
-		../Smw/utility/Logger.cpp \
+	$(CXX) $(CXXFLAGS) main.cpp \
+		$(UTILITY_DIR)/ClassFactory.cpp \
+		$(COMMON_SRCS) \
 		../Smw/Sensor_manager.cpp \
 		../IMU/WT61/WT61.cpp \
 		../Speed/BRT38/BRT38.cpp \
 		../Speed/OID-R5008D/OID-R5008D.cpp \
-	-I../Smw/utility/ \
-	-I../Smw/utility/ \
-	-I../Smw/ \
-	-I../IMU/ \
-	-ludev -o main.out
+		-I$(UTILITY_DIR) \
+		-I../Smw/ \
+		-I../IMU/ \
+		$(LDFLAGS) -ludev -o main.out
 
-# 删除编译生成的文件 make clean
+# 测试真实传感器插拔
+test_main:
+	$(CXX) $(CXXFLAGS) test_main.cpp \
+		$(UTILITY_DIR)/ClassFactory.cpp \
+		$(COMMON_SRCS) \
+		../Smw/Sensor_manager.cpp \
+		../IMU/WT61/WT61.cpp \
+		../Speed/BRT38/BRT38.cpp \
+		../Speed/OID-R5008D/OID-R5008D.cpp \
+		-I$(UTILITY_DIR) \
+		-I../Smw/ \
+		-I../IMU/ \
+		$(LDFLAGS) -ludev -o test_main.out
+
+# 测试 EventLoop + select
+test_subloop:
+	$(CXX) $(CXXFLAGS) test_subloop.cpp \
+		$(COMMON_SRCS) \
+		-I$(UTILITY_DIR) \
+		-I../Smw/ \
+		$(LDFLAGS) -o test_subloop.out
+
+# 删除编译生成的文件
 clean:
-	rm -f $(TESTS) *.out
-
+	rm -f *.out

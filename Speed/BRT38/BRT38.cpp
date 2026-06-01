@@ -1,5 +1,5 @@
 /**
- * @brief:速度传感器驱动
+ * @brief:速度传感器驱动（接入 SubLoop 模式）
  */
 
 #include "BRT38.h"
@@ -45,10 +45,10 @@ long BRT38::hexToDec(char* source, int len)
 
 int BRT38::Init()
 {
-    
+
     sleep(1);
-    /* 打开Linux串口设备文件，对应该传感器 */
-    fd_ = open(devnode_.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
+    /* 打开Linux串口设备文件，对应该传感器，使用 O_NONBLOCK 非阻塞模式 */
+    fd_ = open(devnode_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if(fd_ == -1)
     {
         log_error("[Serial:%s] 打开失败： %s\n", name_.c_str(), strerror(errno));
@@ -58,10 +58,10 @@ int BRT38::Init()
 
     /* 配置串口参数 */
     struct termios new_cfg = { 0 };
-    cfmakeraw(&new_cfg);            // 设置为原始模式   
+    cfmakeraw(&new_cfg);            // 设置为原始模式
 	cfsetspeed(&new_cfg, B9600);    // 将波特率设置为9600
 
-	new_cfg.c_cflag |= CREAD;       // 使能接收 
+	new_cfg.c_cflag |= CREAD;       // 使能接收
 	new_cfg.c_cflag &= ~CSIZE;      // 将数据位相关的比特位清零
 	new_cfg.c_cflag |= CS8;         // 将数据位数设置为8位
 	new_cfg.c_cflag &= ~PARENB;
@@ -87,7 +87,7 @@ int BRT38::Init()
         return -1;
     }
     status_ = SensorStatus::kReady;
-    log_info("[Serial:%s] 初始化成功\n", name_.c_str());
+    log_info("[Serial:%s] 初始化成功 (fd=%d)\n", name_.c_str(), fd_);
     return 0;
 }
 
@@ -100,25 +100,14 @@ int BRT38::Start()
     }
 
     status_ = SensorStatus::kCapturing;
-    stop_ = false;
-    /* 创建一个新的采集线程 */
-    /**
-     * read_thread_ ： 线程ID保存位置 pthread_t 创建
-     * ReadThread ： 线程入口函数，线程启动后执行这个函数
-     */
-    pthread_create(&read_thread_, nullptr, ReadThread, this);
-    log_info("[Serial:%s] 已启动采集\n", name_.c_str());
+    /* 发送第一条命令，触发数据采集循环 */
+    sendCommand();
+    log_info("[Serial:%s] 已启动采集 (fd=%d)\n", name_.c_str(), fd_);
     return 0;
 }
 
 int BRT38::Stop()
 {
-    stop_ = true;
-    if(read_thread_ != 0)
-    {
-        pthread_join(read_thread_, nullptr);
-        read_thread_ = 0;
-    }
     status_ = SensorStatus::kReady;
     log_info("[Serial:%s] 已停止采集\n", name_.c_str());
     return 0;
@@ -135,74 +124,66 @@ int BRT38::Release()
     return 0;
 }
 
-void* BRT38::ReadThread(void* arg)
+void BRT38::sendCommand()
 {
-    auto* driver = static_cast<BRT38*>(arg);
-    driver->ReadLoop();
-    return nullptr;
+    int ret = write(fd_, readcmd_, 8);
+    if (ret < 0) {
+        log_error("[Serial:%s] 发送命令失败: %s\n", name_.c_str(), strerror(errno));
+    }
 }
 
-void BRT38::ReadLoop()
+/* 非阻塞读取数据（由 SubLoop 的 select 调用）*/
+int BRT38::ReadData()
 {
-    log_info("[Serial:%s] 采集线程启动\n", name_.c_str());
-    /* （）就是调用 SpeedData 的构造函数，创建 SpeedData 对象*/
-    std::shared_ptr<SpeedData> tmp = std::make_shared<SpeedData>();
-    uint32_t fid = 0;
-    while(!stop_)
+    if (fd_ < 0) return -1;
+
+    /* 把整个串口接收缓冲区清空 */
+    bzero(buf_, SUDU_Buffer_Length);
+    /* 从串口读数据，即读取传感器传过来的数据 */
+    ssize_t ret = read(fd_, buf_, 10);
+
+    if (ret > 0)
     {
-        sleep(1);
-        /* Linux程序通过串口 把数组readcmd_命令 发送给BRT38传感器*/
-        /* write：往串口里写数据，即发送给传感器*/   
-        int ret = write(fd_, readcmd_, 8);
-        if( ret < 0 ) {
-            log_error("write fail%s\n", strerror(errno));
-        }
-
-        /* 把整个串口接收缓冲区清空 */
-        bzero(buf_, SUDU_Buffer_Length);
-        /* 从串口读数据，即读取传感器传过来的数据 */
-        ret = read(fd_, buf_, 10);
-        if(ret > 0)
+        int i = 0;
+        for(; i < ret - 1; i++)
         {
-            int i = 0;
-            for(; i < ret - 1; i++)
+            /* 找到数据头，然后把 i 移动到数据区 */
+            if(buf_[i] == 0x03 && buf_[i+1] == 0x04)
             {
-                /* 解析的是测试数据 */
-
-                /* 找到数据头，然后把 i 移动到数据区 */
-                if(buf_[i] == 0x03 && buf_[i+1] == 0x04)
-                {
-                    /* 跳过数据头，得到后面传入的数据*/
-                    i += 2;
-                    break;
-                }    
+                /* 跳过数据头，得到后面传入的数据*/
+                i += 2;
+                break;
             }
-
-            /* 解析数据buf_ ，暂时只解析了转速，id和频率都是自己设的，测试用*/
-            char buf[5];
-            /* strncpy 从buf_中取出 4个字符存到buf中*/
-            strncpy(buf, buf_ + i, 4);
-            tmp ->n = hexToDec(buf,4); //转速
-            tmp->frameId = fid++; //帧号ID
-            tmp->frequency = 10;  //采集频率
-            /* 编码器值 → 实际位移 */
-            tmp->n = (float)tmp->n*0.00915f;
-            /* get表示从tmp中取出裸指针 */
-            if(on_data_) on_data_(tmp.get());
         }
-        else if(ret < 0)
-        {
-            if(errno == EAGAIN || errno == EWOULDBLOCK)
-            {
-                    usleep(1000);
-                    continue;
 
-            }
-            log_error("[Serial:%s] 读取错误: %s\n", name_.c_str(), strerror(errno));
-            if( on_error_ ) on_error_(name_, errno);
-            status_ = SensorStatus::kError;
-            break;
-        }
+        /* 解析数据buf_ ，暂时只解析了转速，id和频率都是自己设的，测试用*/
+        auto tmp = std::make_shared<SpeedData>();
+        char buf[5];
+        /* strncpy 从buf_中取出 4个字符存到buf中*/
+        strncpy(buf, buf_ + i, 4);
+        tmp->n = hexToDec(buf, 4); //转速
+        tmp->frameId = 0;          //帧号ID
+        tmp->frequency = 10;       //采集频率
+        /* 编码器值 → 实际位移 */
+        tmp->n = (float)tmp->n * 0.00915f;
+
+        /* 触发回调（在 SubLoop 线程中执行）*/
+        if (on_data_) on_data_(tmp.get());
+
+        /* 发送下一条命令，形成 "发送→接收→发送" 循环 */
+        sendCommand();
+        return 0;
     }
-    log_info("[Serial:%s] 采集线程退出\n", name_.c_str());
+    else if (ret < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return 0;  // 没有数据，正常返回
+        }
+        log_error("[Serial:%s] 读取错误: %s\n", name_.c_str(), strerror(errno));
+        if (on_error_) on_error_(name_, errno);
+        status_ = SensorStatus::kError;
+        return -1;
+    }
+    return 0;
 }

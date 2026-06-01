@@ -11,9 +11,9 @@
 #include <libudev.h>
 
 
-SensorManger::SensorManger()
-    : ioThreadPool_(&mainLoop_, "SubLoop")
-    , hotplug_thread_(0)
+SensorManger::SensorManger(EventLoop* mainLoop)
+    : mainLoop_(mainLoop)
+    , ioThreadPool_(mainLoop_, "SubLoop")
     , running_(false)
     , udev_(nullptr)
     , udev_mon_(nullptr)
@@ -112,7 +112,6 @@ int SensorManger::Start()
     udev_monitor_filter_add_match_subsystem_devtype(mon, "usb", nullptr);
     udev_monitor_filter_add_match_subsystem_devtype(mon, "tty", nullptr);
     udev_monitor_filter_add_match_subsystem_devtype(mon, "net", nullptr);
-    // udev_monitor_filter_add_match_subsystem_devtype(mon, "block", nullptr);
     udev_monitor_enable_receiving(mon);
 
     /* 启动 SubLoop 线程池 */
@@ -122,9 +121,11 @@ int SensorManger::Start()
     bool ret = ScanAllDevice();
     if(!ret) return -1;
 
+    /* 把 udev fd 注册到 mainLoop_，由 mainLoop_ 的 select 统一监听 */
+    int udev_fd = udev_monitor_get_fd(mon);
+    mainLoop_->registerUdevFd(udev_fd, [this]() { handleUdevEvent(); });
+
     running_ = true;
-    /* 开启子线程实现监听 HotplugThread 监控线程*/
-    pthread_create(&hotplug_thread_, nullptr, HotplugThread, this);
 
     log_info("\n[Manager] 热插拔监控已启动 (SubLoop线程数: %zu)",
              ioThreadPool_.getAllLoops().size());
@@ -134,11 +135,10 @@ int SensorManger::Start()
 void SensorManger::Stop()
 {
     running_ = false;
-    /* 回收线程 */
-    if(hotplug_thread_ != 0) {
-        pthread_join(hotplug_thread_, nullptr);
-        hotplug_thread_ = 0;
-    }
+
+    /* 停止 mainLoop_（由外部负责 quit，这里只清理自身资源）*/
+    mainLoop_->quit();
+
     {
         std::lock_guard<std::mutex> guard(lock_);
         for(auto& pair : slots_)
@@ -170,55 +170,57 @@ void SensorManger::Stop()
     log_info("[Manager] 已停止");
 }
 
-// ==================== 热插拔 ====================
-void* SensorManger::HotplugThread(void* arg){
-    /* 把 void* 转回 SensorManager* 63行传入的是this,所以 要恢复 */
-    static_cast<SensorManger*>(arg)->HotplugLoop();
-    return nullptr;
-}
-/* udev 热插拔,开始监听 */
-void SensorManger::HotplugLoop() {
+// ==================== udev 热插拔事件回调 ====================
+/**
+ * @brief: 在 mainLoop_ 线程中执行，处理 udev 热插拔事件
+ * 通过 queueInLoop 将传感器操作投递到目标 SubLoop 线程执行
+ */
+void SensorManger::handleUdevEvent() {
     auto* mon = static_cast<struct udev_monitor*>(udev_mon_);
-    int fd = udev_monitor_get_fd(mon);
-    log_info("\n[Manager] 热插拔监听开始 (fd=%d)", fd);
+    struct udev_device* dev = udev_monitor_receive_device(mon);
+    if (!dev) return;
 
-    /* start开启 */
-    while(running_) {
-    /* 使用select实现监听 */
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(fd, &fds);
-        /* 设置超时时间 */
-        struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
-        /* 最多等待1秒，看看有没有设备热插拔事件*/
-        int ret = select(fd + 1, &fds, nullptr, nullptr, &tv);
+    DeviceInfo info = ParseDeviceEvent(dev);
+    udev_device_unref(dev);
 
-        if(ret < 0) break;
-        if(ret == 0) continue;;
+    if (info.devnode.empty()) return;
 
-        if(FD_ISSET(fd, &fds)) {
-            /* 拿到被监听的设备,存储了devnode等数据 */
-            struct udev_device* dev = udev_monitor_receive_device(mon);
-            if (!dev) continue;;
-            /* 解析dev里面的所有信息存到info里面,包括devnode等 */
-            DeviceInfo info = ParseDeviceEvent(dev);
-            udev_device_unref(dev);
+    if (info.action == "bind" || (info.subsystem == "tty" && info.action == "add")) {
+        log_info("\n[Manager] 设备插入: %s (%s:%s)",
+                 info.devnode.c_str(), info.vendor_id.c_str(),
+                 info.product_id.c_str());
 
-            if(info.devnode.empty()) continue;
-
-            if(info.action == "bind" || (info.subsystem == "tty" && info.action == "add")) {
-                log_info("\n[Manager] 设备插入: %s (%s:%s)",
-                       info.devnode.c_str(), info.vendor_id.c_str(),
-                       info.product_id.c_str());
-                AddSensor(info.subsystem, info.vendor_id,
-                          info.product_id, info.devnode);
-            }
-            else if ( info.action == "remove") {
-                log_info("\n[Manager] 设备移除: %s", info.devnode.c_str());
-                RemoveSensor(info.devnode);
-            }
+        /* 先检查驱动是否已注册，避免无意义的投递 */
+        const DriverEntry* entry = FindDriver(info.subsystem, info.vendor_id, info.product_id);
+        if (!entry) {
+            log_info("[Manager] 驱动监听未被注册 (子系统=%s, VID=%s, PID=%s)",
+                     info.subsystem.c_str(), info.vendor_id.c_str(), info.product_id.c_str());
+            return;
         }
 
+        /* 获取目标 SubLoop，通过 queueInLoop 投递任务 */
+        EventLoop* ioLoop = ioThreadPool_.getNextLoop();
+        std::string subsystem = info.subsystem;
+        std::string vendor_id = info.vendor_id;
+        std::string product_id = info.product_id;
+        std::string devnode = info.devnode;
+        ioLoop->queueInLoop([this, subsystem, vendor_id, product_id, devnode]() {
+            AddSensor(subsystem, vendor_id, product_id, devnode);
+        });
+    }
+    else if (info.action == "remove") {
+        log_info("\n[Manager] 设备移除: %s", info.devnode.c_str());
+
+        /* 找到传感器所在的 SubLoop，投递移除任务 */
+        std::lock_guard<std::mutex> guard(lock_);
+        auto it = slots_.find(info.devnode);
+        if (it != slots_.end()) {
+            EventLoop* ioLoop = it->second->ioLoop;
+            std::string devnode = info.devnode;
+            ioLoop->queueInLoop([this, devnode]() {
+                RemoveSensor(devnode);
+            });
+        }
     }
 }
 
@@ -255,7 +257,7 @@ const DriverEntry* SensorManger::FindDriver(const std::string& subsystem,
                                             const std::string& product_id) {
     for (const auto& entry : driver_registry_) {
         if(entry.subsystem != subsystem) continue;
-        if(!entry.vendor_id.empty() && entry.vendor_id != vendor_id) continue;;
+        if(!entry.vendor_id.empty() && entry.vendor_id != vendor_id) continue;
         if(!entry.product_id.empty() && entry.product_id != product_id) continue;
         return &entry;
     }

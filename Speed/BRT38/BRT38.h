@@ -1,5 +1,5 @@
 /**
- * @brief:速度传感器驱动
+ * @brief:速度传感器驱动（接入 SubLoop 模式）
  */
 
 #pragma once
@@ -13,25 +13,27 @@
 class BRT38 : public SensorBase
 {
 public:
-    BRT38() : fd_(-1), read_thread_(0), stop_(false) {}
-    ~BRT38() { if(fd_ >= 0) Release(); }
+    BRT38() : fd_(-1) {}
+    ~BRT38() { if (fd_ >= 0) Release(); }
 
     int Init() override;
     int Start() override;
     int Stop() override;
     int Release() override;
+
+    /* SubLoop 接口 */
+    int fd() const override { return fd_; }
+    int ReadData() override;
+
     /* 返回ch字符在sign数组中的序号 */
     int getIndex0fSigns(char ch);
     /* 十六进制数转换为十进制数 */
     long hexToDec(char* source, int len);
 
 private:
-    static void* ReadThread(void* arg);
-    void ReadLoop();
+    void sendCommand();
 
     int fd_;
-    pthread_t read_thread_;
-    std::atomic<bool> stop_;
     //发送命令帧 + 接收缓冲区
     //该传感器使用： 串口发送一段命令过去，才会返回转速的数据，即下面这行命令
     //const char readcmd_[8] = { 0x01, 0x03, 0x00, 0x20, 0x00, 0x02, 0xC5, 0xC1};

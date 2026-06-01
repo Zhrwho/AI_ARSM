@@ -30,8 +30,15 @@ public:
     void unregisterSensor(SensorBase* sensor);
     size_t sensorCount() const;
 
+    /* udev 热插拔 fd 注册 */
+    void registerUdevFd(int fd, std::function<void()> cb);
+
+    /* 线程判断 */
+    bool isInLoopThread() const;
+
 private:
     void handleRead();
+    void handleUdevEvent();
     void doPendingFunctors();
     int buildFdSet(fd_set& fds);
 
@@ -46,4 +53,11 @@ private:
     /* 传感器列表 */
     std::vector<SensorBase*> sensors_;
     mutable std::mutex sensorMutex_;
+
+    /* udev 热插拔 */
+    int udevFd_;
+    std::function<void()> udevCallback_;
+
+    /* 线程 id，用于判断调用者是否在当前 Loop 线程 */
+    pid_t threadId_;
 };

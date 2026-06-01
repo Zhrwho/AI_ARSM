@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:\\\\Users\\\\liaoxiangdong\\\\Desktop\\\\ARSM\")",
+      "Read(//c/Users/liaoxiangdong/Desktop/ARSM/**)"
+    ]
+  }
+}

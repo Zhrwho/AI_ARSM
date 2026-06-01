@@ -9,7 +9,6 @@
  #include <map>
  #include <memory>
  #include <mutex>
- #include <pthread.h>
  #include <string>
  #include <vector>
 
@@ -17,15 +16,13 @@
  #include "utility/EventLoop.h"
  #include "utility/EventLoopThreadPool.h"
 
-//定义了一个命名空间
-//  namespace smw {
-
 /**
  * 传感器管理: 热插拔监控 + 驱动注册 + 驱动生命周期管理
+ * 采用 Reactor 依赖注入模式：外部创建 mainLoop，SensorManger 只持有指针
  */
 class SensorManger {
 public:
-    SensorManger();
+    explicit SensorManger(EventLoop* mainLoop);
     ~SensorManger();
 
     /* 设置 SubLoop 线程数（必须在 Start() 之前调用）*/
@@ -60,9 +57,8 @@ private:
                   const std::string& devnode);
     void RemoveSensor(const std::string& devnode);
 
-    /* udev 热插拔 */
-    void HotplugLoop();
-    static void* HotplugThread(void* arg);
+    /* udev 事件回调（在 mainLoop_ 中执行）*/
+    void handleUdevEvent();
 
     /* 匹配驱动,在main里面注册的那里去找*/
     const DriverEntry* FindDriver(const std::string& subsystem,
@@ -84,15 +80,12 @@ private:
     std::map<std::string, std::unique_ptr<SensorSlot>> slots_;
     mutable std::mutex lock_;
 
-    // 线程模型
-    EventLoop mainLoop_;                        // 主循环（1个）
+    // 线程模型（Reactor 依赖注入）
+    EventLoop* mainLoop_;                       // 外部传入，不拥有生命周期
     EventLoopThreadPool ioThreadPool_;          // SubLoop 线程池
 
-    pthread_t hotplug_thread_;
     std::atomic<bool> running_;
     struct udev* udev_;
     struct udev_monitor* udev_mon_; //设备热插拔监听器
     bool sacndevice = false;
 };
-
-//  }

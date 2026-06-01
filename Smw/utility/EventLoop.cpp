@@ -3,6 +3,7 @@
 #include "Logger.h"
 #include <sys/eventfd.h>
 #include <sys/select.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <algorithm>
 
@@ -20,6 +21,8 @@ EventLoop::EventLoop()
     , quit_(false)
     , callingPendingFunctors_(false)
     , wakeupFd_(createEventfd())
+    , udevFd_(-1)
+    , threadId_(0)
 {
 }
 
@@ -32,11 +35,18 @@ EventLoop::~EventLoop() {
 void EventLoop::loop() {
     looping_ = true;
     quit_ = false;
+    threadId_ = static_cast<pid_t>(::syscall(SYS_gettid));
 
     while (!quit_) {
         // 1. 构建 fd_set（传感器 fd + wakeup fd）
         fd_set fds;
         int max_fd = buildFdSet(fds);
+
+        // 把 udev fd 也加入监听
+        if (udevFd_ >= 0) {
+            FD_SET(udevFd_, &fds);
+            max_fd = std::max(max_fd, udevFd_);
+        }
 
         // 2. select 等待（10ms 超时）
         struct timeval tv;
@@ -63,6 +73,11 @@ void EventLoop::loop() {
 
         // 5. 执行待处理任务
         doPendingFunctors();
+
+        // 6. 处理 udev 热插拔事件（在锁外执行，避免死锁）
+        if (ret > 0 && udevFd_ >= 0 && FD_ISSET(udevFd_, &fds)) {
+            handleUdevEvent();
+        }
     }
 
     looping_ = false;
@@ -90,7 +105,11 @@ void EventLoop::quit() {
 }
 
 void EventLoop::runInLoop(Functor cb) {
-    cb();  // 简化版，直接执行
+    if (isInLoopThread()) {
+        cb();
+    } else {
+        queueInLoop(std::move(cb));
+    }
 }
 
 void EventLoop::queueInLoop(Functor cb) {
@@ -146,4 +165,19 @@ void EventLoop::unregisterSensor(SensorBase* sensor) {
 size_t EventLoop::sensorCount() const {
     std::lock_guard<std::mutex> lock(sensorMutex_);
     return sensors_.size();
+}
+
+void EventLoop::registerUdevFd(int fd, std::function<void()> cb) {
+    udevFd_ = fd;
+    udevCallback_ = std::move(cb);
+}
+
+void EventLoop::handleUdevEvent() {
+    if (udevCallback_) {
+        udevCallback_();
+    }
+}
+
+bool EventLoop::isInLoopThread() const {
+    return threadId_ == static_cast<pid_t>(::syscall(SYS_gettid));
 }

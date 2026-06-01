@@ -9,6 +9,7 @@
 
 #include <csignal>
 #include <unistd.h>
+#include <thread>
 
 #include "../Smw/Sensor_manager.h"
 #include "../Smw/utility/Logger.h"
@@ -24,14 +25,17 @@ int main() {
     Logger_Init("test_main.log");
     printf("============ 传感器热插拔测试 =========\n\n");
 
-    // 1. 创建管理器
-    SensorManger manager;
+    // 1. 创建主循环（主线程拥有）
+    EventLoop loop;
+
+    // 2. 创建管理器，注入 mainLoop
+    SensorManger manager(&loop);
     g_manager = &manager;
 
-    // 2. 设置 SubLoop 线程数
+    // 3. 设置 SubLoop 线程数
     manager.setThreadNum(3);
 
-    // 3. 注册 WT61 驱动（IMU 传感器）
+    // 4. 注册 WT61 驱动（IMU 传感器）
     DriverEntry entry1;
     entry1.subsystem = "usb";
     entry1.vendor_id = "05c8";
@@ -50,7 +54,7 @@ int main() {
     };
     manager.RegisterDriver(entry1);
 
-    // 4. 注册 BRT38 驱动（速度传感器）
+    // 5. 注册 BRT38 驱动（速度传感器）
     DriverEntry entry2;
     entry2.subsystem = "tty";
     entry2.vendor_id = "1a86";
@@ -69,23 +73,19 @@ int main() {
     };
     manager.RegisterDriver(entry2);
 
-    // 5. 信号处理
+    // 6. 信号处理
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // 6. 启动
+    // 7. 启动（注册 udev fd 到 mainLoop，启动 SubLoop 线程池）
     if (manager.Start() != 0) {
         printf("[错误] 管理器启动失败\n");
         return 1;
     }
 
-    // 7. 主循环
+    // 8. 主线程运行 mainLoop（阻塞，监听 udev 热插拔事件）
     printf("\n------ 等待传感器插入... (Ctrl+C 退出) ------\n\n");
-
-    while (true) {
-        sleep(5);
-        manager.ListSensors();
-    }
+    loop.loop();
 
     return 0;
 }

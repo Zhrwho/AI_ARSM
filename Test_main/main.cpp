@@ -25,11 +25,14 @@ int main() {
     Logger_Init("logger.log");
     printf("============ 传感器热插拔管理框架 =========\n\n");
 
-    //1.创建管理器
-    SensorManger manager;
+    //1.创建主循环（主线程拥有）
+    EventLoop loop;
+
+    //2.创建管理器，注入 mainLoop
+    SensorManger manager(&loop);
     g_manager = &manager;
 
-    //2.注册驱动
+    //3.注册驱动
     // 匹配规则：子系统 + VID + PID → 驱动工厂函数
     //  -----应该正常输出----
     DriverEntry entry1;
@@ -56,7 +59,7 @@ int main() {
     //-----FindeDriver能找到,但工厂没注册,应该找不到---
     DriverEntry entry2;
     entry2.subsystem = "usb";
-    entry2.vendor_id = "1a83";       
+    entry2.vendor_id = "1a83";
     entry2.product_id = "7525";
     entry2.driver_name = "MT61";  //WT61驱动,WT61是一种IMU传感器,对应设置了他的驱动文件工厂
     entry2.onData = [](const DataBase* data) {
@@ -78,7 +81,7 @@ int main() {
     /* BRT38 */
     DriverEntry entry3;
     entry3.subsystem = "tty";
-    entry3.vendor_id = "1a86";       
+    entry3.vendor_id = "1a86";
     entry3.product_id = "7523";
     entry3.driver_name = "BRT38";
     entry3.onData = [](const DataBase* data) {
@@ -97,23 +100,20 @@ int main() {
     manager.RegisterDriver(entry3);
 
 
-    //3.信号处理 (ctrl + c等信号)
+    //4.信号处理 (ctrl + c等信号)
     /* 以后如果收到 SIGINT，就让系统自动调用 signal_handler*/
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    //4.启动热插拔监控
+    //5.启动热插拔监控（注册 udev fd 到 mainLoop，启动 SubLoop 线程池）
     if(manager.Start() != 0) {
         log_error(" [main] 管理器启动失败");
         return 1;
     }
 
-    // 5. 主循环 - 主要过程在manager中运行;
+    // 6. 主线程运行 mainLoop（阻塞，监听 udev 热插拔事件）
     printf("\n------等待设备插入... (Ctrl+C 退出)------\n\n");
+    loop.loop();
 
-    while(true) {
-        // sleep(5);
-        // manager.ListSensors();
-    }
     return 0;
 }

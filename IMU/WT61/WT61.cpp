@@ -14,8 +14,8 @@
 
 /* name在manager里面设置,(setname函数)由main函数填入entry后设置*/
 WT61::WT61(const std::string& name, const std::string& devnode)
-    : SensorBase(name,devnode), fd_(-1), read_thread_(0), stop_(false) { }
-WT61::WT61() : fd_(-1), read_thread_(0), stop_(false) { }
+    : SensorBase(name,devnode), fd_(-1) { }
+WT61::WT61() : fd_(-1) { }
 
 WT61:: ~WT61() {
     if(fd_ >= 0) Release();
@@ -36,7 +36,7 @@ int WT61::Init(){
         status_ = SensorStatus::kError;
         return -1;
     }
-    
+
     /* 配置串口 115200 8N1 */
     struct termios tty {};
     /* 获取当前串口设备的配置参数 */
@@ -53,11 +53,11 @@ int WT61::Init(){
     tcsetattr(fd_, TCSANOW, &tty);
 
     status_ = SensorStatus::kReady;
-    log_info("\n[Serial:%s] 初始化成功", name_.c_str());
+    log_info("\n[Serial:%s] 初始化成功 (fd=%d)", name_.c_str(), fd_);
     return 0;
 }
 
-/* 串口设备切换到采集状态,开启读线程不断采集数据 loop里面while(!stop)循环*/
+/* 串口设备切换到采集状态（不创建线程，由 SubLoop 管理）*/
 int WT61::Start(){
     if(status_ != SensorStatus::kReady)
     {
@@ -65,19 +65,11 @@ int WT61::Start(){
         return -1;
     }
     status_ = SensorStatus::kCapturing;
-    stop_ = false;
-    /* 创建该设备线程 读数据*/
-    pthread_create(&read_thread_, nullptr, ReadThread, this);
-    log_info("\n[Serial:%s] 已启动采集", name_.c_str());
+    log_info("\n[Serial:%s] 已启动采集 (fd=%d)", name_.c_str(), fd_);
     return 0;
 }
 
 int WT61::Stop(){
-    stop_ = true;
-    if(read_thread_ != 0){
-        pthread_join(read_thread_, nullptr);
-        read_thread_ = 0;
-    }
     status_  = SensorStatus::kReady;
     log_info("[Serial:%s] 已停止采集", name_.c_str());
     return 0;
@@ -93,50 +85,37 @@ int WT61::Release(){
     return 0;
 }
 
-void* WT61::ReadThread(void* arg){
-    /* 把线程接收到的万能指针恢复成真正的SerialDriver对象 */
-    auto* driver = static_cast<WT61*>(arg);
-    driver->ReadLoop();
-    return nullptr;
-}
+/* 非阻塞读取数据（由 SubLoop 的 select 调用）*/
+int WT61::ReadData() {
+    if (fd_ < 0) return -1;
 
-/* 执行回调 on_data_ */
-void WT61::ReadLoop(){
-    log_info("\n[Serial:%s] 采集线程启动", name_.c_str());
-    /* WT61是IMU传感器,返回IMU数据类型 */
-    std::shared_ptr<ImuData> tmp = std::make_shared<ImuData>();
+    char buf[1024];
+    ssize_t n = ::read(fd_, buf, sizeof(buf));
 
-    while(!stop_) {
-        char buf[1024];
-        ssize_t n = read(fd_, buf, sizeof(buf));
-        /*  不完善,这里应该写个协议解析,把串口读到的buf数据, 解析存进tmp里面 */
-
-        /* 测试数据, 造一份假数据 存到Imudata里面, 方便测试 */
-        /* 后续读到真的Imu数据要进行数据解析 */
+    if (n > 0) {
+        // 解析数据（这里简化处理，实际应该解析协议）
+        auto tmp = std::make_shared<ImuData>();
         tmp->frameId = 1;
         tmp->pitch = 0;
         tmp->yaw = 1;
         tmp->roll = 2;
 
-
-        if(n > 0) {
-            /* 执行main传入的回调 */
-            if(on_data_) {
-                on_data_(tmp.get());
-            }
+        // 触发回调（在 SubLoop 线程中执行）
+        if (on_data_) {
+            on_data_(tmp.get());
         }
-        else if ( n < 0) {
-            if( errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(1000);
-                continue;
-            }
-            log_error("[Serial:%s] 读取错误: %s", name_.c_str(), strerror(errno));
-            if(on_error_) {
-                on_error_(name_, errno);
-            }
-            status_ = SensorStatus::kError;
-            break;
-        }
+        return 0;
     }
-    log_info("[Serial:%s] 采集线程退出", name_.c_str());
+    else if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return 0;  // 没有数据，正常返回
+        }
+        log_error("[Serial:%s] 读取错误: %s", name_.c_str(), strerror(errno));
+        if (on_error_) {
+            on_error_(name_, errno);
+        }
+        status_ = SensorStatus::kError;
+        return -1;
+    }
+    return 0;
 }

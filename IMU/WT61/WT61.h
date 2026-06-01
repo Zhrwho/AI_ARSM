@@ -23,13 +23,12 @@ public:
     int Stop() override;
     int Release() override;
 
-private:
-    static void* ReadThread(void* arg);
-    void ReadLoop();
+    /* SubLoop 接口 */
+    int fd() const override { return fd_; }
+    int ReadData() override;  // 非阻塞读取，触发 on_data_ 回调
 
+private:
     int fd_;
-    pthread_t read_thread_;
-    std::atomic<bool> stop_;
 };
 
 /*

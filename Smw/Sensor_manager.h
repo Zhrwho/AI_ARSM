@@ -14,8 +14,10 @@
  #include <vector>
 
  #include "Sensor_driver.h"
+ #include "utility/EventLoop.h"
+ #include "utility/EventLoopThreadPool.h"
 
- //定义了一个命名空间
+//定义了一个命名空间
 //  namespace smw {
 
 /**
@@ -25,6 +27,9 @@ class SensorManger {
 public:
     SensorManger();
     ~SensorManger();
+
+    /* 设置 SubLoop 线程数（必须在 Start() 之前调用）*/
+    void setThreadNum(int num);
 
     /* 注册驱动工厂,注册需要监听的工厂? 在main函数里传入*/
     void RegisterDriver(const DriverEntry& entry);
@@ -45,6 +50,7 @@ private:
         std::string driver_name;
         std::unique_ptr<SensorBase> driver;
         std::atomic<bool> running;
+        EventLoop* ioLoop;  // 传感器绑定的 SubLoop
     };
 
     /* 添加/移除传感器 */
@@ -77,6 +83,10 @@ private:
     /* 存储已插入的传感器的map */
     std::map<std::string, std::unique_ptr<SensorSlot>> slots_;
     mutable std::mutex lock_;
+
+    // 线程模型
+    EventLoop mainLoop_;                        // 主循环（1个）
+    EventLoopThreadPool ioThreadPool_;          // SubLoop 线程池
 
     pthread_t hotplug_thread_;
     std::atomic<bool> running_;

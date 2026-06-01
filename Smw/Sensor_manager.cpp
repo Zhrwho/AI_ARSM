@@ -12,9 +12,20 @@
 
 
 SensorManger::SensorManger()
-    : hotplug_thread_(0), running_(false), udev_(nullptr), udev_mon_(nullptr) { }
+    : ioThreadPool_(&mainLoop_, "SubLoop")
+    , hotplug_thread_(0)
+    , running_(false)
+    , udev_(nullptr)
+    , udev_mon_(nullptr)
+{
+}
+
 SensorManger::~SensorManger() {
     Stop();
+}
+
+void SensorManger::setThreadNum(int num) {
+    ioThreadPool_.setThreadNum(num);
 }
 
 /**
@@ -63,7 +74,7 @@ bool SensorManger::ScanAllDevice()
     struct udev_list_entry *entry;
     udev_list_entry_foreach(entry, devs)
     {
-        /* 从“设备路径”创建真正的“设备对象” ,链表节点存储的是路径 */
+        /* 从"设备路径"创建真正的"设备对象" ,链表节点存储的是路径 */
         const char* syspath = udev_list_entry_get_name(entry);
         struct udev_device *dev = udev_device_new_from_syspath(udev_, syspath);
 
@@ -104,6 +115,9 @@ int SensorManger::Start()
     // udev_monitor_filter_add_match_subsystem_devtype(mon, "block", nullptr);
     udev_monitor_enable_receiving(mon);
 
+    /* 启动 SubLoop 线程池 */
+    ioThreadPool_.start();
+
     /* 扫描已存在设备 */
     bool ret = ScanAllDevice();
     if(!ret) return -1;
@@ -112,7 +126,8 @@ int SensorManger::Start()
     /* 开启子线程实现监听 HotplugThread 监控线程*/
     pthread_create(&hotplug_thread_, nullptr, HotplugThread, this);
 
-    log_info("\n[Manager] 热插拔监控已启动");
+    log_info("\n[Manager] 热插拔监控已启动 (SubLoop线程数: %zu)",
+             ioThreadPool_.getAllLoops().size());
     return 0;
 }
 
@@ -126,11 +141,17 @@ void SensorManger::Stop()
     }
     {
         std::lock_guard<std::mutex> guard(lock_);
-        for(auto& pair : slots_) 
+        for(auto& pair : slots_)
         {
             auto& slot = pair.second;
             log_info("[Manager] 停止传感器: %s", slot->devnode.c_str());
             slot->running = false;
+
+            /* 从 SubLoop 注销传感器 */
+            if (slot->driver->fd() >= 0 && slot->ioLoop) {
+                slot->ioLoop->unregisterSensor(slot->driver.get());
+            }
+
             slot->driver->Stop();
             slot->driver->Release();
         }
@@ -145,7 +166,7 @@ void SensorManger::Stop()
         udev_unref(static_cast<struct udev*>(udev_));
         udev_ = nullptr;
     }
-    
+
     log_info("[Manager] 已停止");
 }
 
@@ -249,8 +270,8 @@ int SensorManger::AddSensor(const std::string& subsystem,
                             const std::string& vendor_id,
                             const std::string& product_id,
                             const std::string& devnode) {
-    std::lock_guard<std::mutex> guard(lock_);    
-    
+    std::lock_guard<std::mutex> guard(lock_);
+
     if(slots_.count(devnode)) {
         log_info("[Manager] 传感器 %s 已存在", devnode.c_str());
         return -1;
@@ -268,6 +289,9 @@ int SensorManger::AddSensor(const std::string& subsystem,
         return -1;
     }
 
+    /* 获取一个 SubLoop（轮询） */
+    EventLoop* ioLoop = ioThreadPool_.getNextLoop();
+
     /* 工厂创建驱动，创建子类对象(已经注册过的父类工厂可以通过设备名直接创建子类对象) */
     std::unique_ptr<SensorBase> driver = CreateObject<SensorBase>(entry->driver_name);
     if(!driver) {
@@ -281,30 +305,38 @@ int SensorManger::AddSensor(const std::string& subsystem,
     driver->SetDataCallback(entry->onData);
     driver->SetErrorCallback(entry->onError);
 
-    /* 创建slot, 存到slots里面 用devnode做key */
-    auto slot = std::make_unique<SensorSlot>();
-    slot->devnode = devnode;
-    slot->driver_name = entry->driver_name;
-    slot->driver = std::move(driver);
-    slot->running = true; //未使用?
-
     /* 初始化驱动,调用驱动函数*/
-    if(slot->driver->Init() != 0)
+    if(driver->Init() != 0)
     {
         log_error("[Manager] 驱动初始化失败");
         return -1;
     }
     /* 启动驱动 */
-    if( slot->driver->Start() != 0)
+    if( driver->Start() != 0)
     {
         log_error("[Manager] 驱动启动失败");
         return -1;
     }
 
+    /* 将传感器注册到 SubLoop，由 select 统一监听 */
+    if (driver->fd() >= 0) {
+        ioLoop->registerSensor(driver.get());
+        log_info("\n[Manager] 传感器 %s 已注册到 SubLoop (fd=%d)",
+               devnode.c_str(), driver->fd());
+    }
+
+    /* 创建slot, 存到slots里面 用devnode做key */
+    auto slot = std::make_unique<SensorSlot>();
+    slot->devnode = devnode;
+    slot->driver_name = entry->driver_name;
+    slot->driver = std::move(driver);
+    slot->running = true;
+    slot->ioLoop = ioLoop;
+
     /* 存到slots里面,  用devnode设备文件路径作为索引 */
     slots_[devnode] = std::move(slot);
-    log_info("\n[Manager] 传感器 %s 已添加 (驱动=%s)",
-           devnode.c_str(), entry->driver_name.c_str());
+    log_info("\n[Manager] 传感器 %s 已添加 (驱动=%s, SubLoop=%p)",
+           devnode.c_str(), entry->driver_name.c_str(), ioLoop);
     return 0;
 }
 
@@ -323,6 +355,11 @@ void SensorManger::RemoveSensor(const std::string& devnode) {
 
     auto& slot = it->second;
     log_info("[Manager] 移除传感器: %s", devnode.c_str());
+
+    /* 从 SubLoop 注销传感器 */
+    if (slot->driver->fd() >= 0 && slot->ioLoop) {
+        slot->ioLoop->unregisterSensor(slot->driver.get());
+    }
 
     slot->running = false;
     slot->driver-> Stop();
@@ -344,8 +381,9 @@ void SensorManger::ListSensors() const {
             case SensorStatus::kCapturing: st = "采集中"; break;
             case SensorStatus::kError: st = "故障"; break;
         }
-        log_info("  %s -> %s [%s]",
-               pair.first.c_str(), pair.second->driver_name.c_str(), st);
+        log_info("  %s -> %s [%s] (SubLoop=%p)",
+               pair.first.c_str(), pair.second->driver_name.c_str(), st,
+               pair.second->ioLoop);
     }
     printf("==========================================\n\n");
 }

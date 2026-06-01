@@ -3,9 +3,9 @@
  */
 
  #pragma once
- 
+
  #include <atomic>
- #include <cstdint> //提供“固定大小”的整数类型
+ #include <cstdint> //提供"固定大小"的整数类型
  #include <cstring>
  #include <functional>
  #include <string>
@@ -46,6 +46,10 @@ public:
     virtual int Start() = 0;
     virtual int Stop() = 0;
     virtual int Release() = 0;
+
+    /* SubLoop 接口：用于 select 监听 */
+    virtual int fd() const { return -1; }           // 返回文件描述符
+    virtual int ReadData() { return 0; }            // 非阻塞读取数据，触发 on_data_ 回调
 
     /* 状态查询 */
     SensorStatus GetStatus() const { return status_; }

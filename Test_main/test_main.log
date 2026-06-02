@@ -1,0 +1,30 @@
+2026-06-02 15:57:13.687 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: WT61 (子系统=usb, VID=05c8, PID=03eb)
+2026-06-02 15:57:13.688 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: BRT38 (子系统=tty, VID=1a86, PID=7523)
+2026-06-02 15:57:13.693 INFO ../Smw/Sensor_manager.cpp:132
+[Manager] 热插拔监控已启动 (SubLoop线程数: 3)
+2026-06-02 15:57:38.354 INFO test_main.cpp:20
+收到信号 2, 正在退出...
+2026-06-02 15:57:38.355 INFO ../Smw/Sensor_manager.cpp:172[Manager] 已停止
+2026-06-02 15:57:38.355 INFO ../Smw/Sensor_manager.cpp:172[Manager] 已停止
+2026-06-02 16:00:04.110 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: WT61 (子系统=usb, VID=05c8, PID=03eb)
+2026-06-02 16:00:04.162 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: BRT38 (子系统=tty, VID=1a86, PID=7523)
+2026-06-02 16:00:04.383 INFO ../Smw/Sensor_manager.cpp:132
+[Manager] 热插拔监控已启动 (SubLoop线程数: 3)
+2026-06-02 16:00:48.375 INFO test_main.cpp:20
+收到信号 2, 正在退出...
+2026-06-02 16:00:48.379 INFO ../Smw/Sensor_manager.cpp:172[Manager] 已停止
+2026-06-02 16:00:48.381 INFO ../Smw/Sensor_manager.cpp:172[Manager] 已停止
+2026-06-02 16:01:44.859 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: WT61 (子系统=usb, VID=05c8, PID=03eb)
+2026-06-02 16:01:44.911 INFO ../Smw/Sensor_manager.cpp:38
+[Manager] 注册监听驱动: BRT38 (子系统=tty, VID=1a86, PID=7523)
+2026-06-02 16:01:45.141 INFO ../Smw/Sensor_manager.cpp:133
+[Manager] 热插拔监控已启动 (SubLoop线程数: 3)
+2026-06-02 16:01:51.351 INFO test_main.cpp:20
+收到信号 2, 正在退出...
+2026-06-02 16:01:51.355 INFO ../Smw/Sensor_manager.cpp:173[Manager] 已停止
+2026-06-02 16:01:51.357 INFO ../Smw/Sensor_manager.cpp:173[Manager] 已停止

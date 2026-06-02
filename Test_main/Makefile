@@ -15,7 +15,7 @@ COMMON_SRCS := \
 	$(UTILITY_DIR)/EventLoopThread.cpp \
 	$(UTILITY_DIR)/EventLoopThreadPool.cpp
 
-.PHONY: all main test_main test_subloop clean
+.PHONY: all main test_main test_subloop test_framework clean
 
 all: main
 
@@ -54,6 +54,20 @@ test_subloop:
 		-I$(UTILITY_DIR) \
 		-I../Smw/ \
 		$(LDFLAGS) -o test_subloop.out
+
+# 完整的测试框架（单元测试+集成测试）
+test_framework:
+	$(CXX) $(CXXFLAGS) test_framework.cpp \
+		$(UTILITY_DIR)/ClassFactory.cpp \
+		$(COMMON_SRCS) \
+		../Smw/Sensor_manager.cpp \
+		../IMU/WT61/WT61.cpp \
+		../Speed/BRT38/BRT38.cpp \
+		../Speed/OID-R5008D/OID-R5008D.cpp \
+		-I$(UTILITY_DIR) \
+		-I../Smw/ \
+		-I../IMU/ \
+		$(LDFLAGS) -ludev -o test_framework.out
 
 # 删除编译生成的文件
 clean:

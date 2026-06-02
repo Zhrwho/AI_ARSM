@@ -79,8 +79,10 @@ bool SensorManger::ScanAllDevice()
         struct udev_device *dev = udev_device_new_from_syspath(udev_, syspath);
 
         DeviceInfo info = ParseDeviceEvent(dev);
-        if(info.devnode.empty()) continue;
+        //先释放，避免内存泄漏；
         udev_device_unref(dev);
+        if(info.devnode.empty()) continue;
+
         AddSensor(info.subsystem, info.vendor_id, info.product_id, info.devnode);
     }
     udev_enumerate_unref(enumerate);

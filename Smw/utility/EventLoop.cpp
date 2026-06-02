@@ -60,10 +60,17 @@ void EventLoop::loop() {
             handleRead();
         }
 
-        // 4. 处理传感器数据（在当前 SubLoop 线程中执行）
+        // 4. 处理传感器数据（快照法避免并发修改）
+        //避免fdset还在处理时，sensors_中的sensor已经被更改；
         if (ret > 0) {
-            std::lock_guard<std::mutex> lock(sensorMutex_);
-            for (auto* sensor : sensors_) {
+            std::vector<SensorBase*> snapshot;
+            {
+                std::lock_guard<std::mutex> lock(sensorMutex_);
+                snapshot = sensors_;  // 快照：拷贝传感器指针列表
+            }  // 立即释放锁，避免 ReadData() 回调中的死锁风险
+
+            // 处理快照中的传感器，即使 sensors_ 在此期间变化也安全
+            for (auto* sensor : snapshot) {
                 int fd = sensor->fd();
                 if (fd >= 0 && FD_ISSET(fd, &fds)) {
                     sensor->ReadData();  // 读取数据并触发 on_data_ 回调

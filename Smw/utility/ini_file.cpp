@@ -78,7 +78,7 @@ using std::string;
         {
             line = trim(line);
             if(line == "") continue; //空
-            if(line[0] == '#') continue; //注释
+            if(line[0] == '#' || line[0] == ';') continue; //注释
             if(line[0] == '[') //section
             {
                 int pos = line.find_first_of(']');

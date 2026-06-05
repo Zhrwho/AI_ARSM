@@ -122,9 +122,9 @@ int RegisterDriversFromIni(SensorManger& manager) {
         std::string driver_name = ini.get(section, "driver_name");
 
         DriverEntry entry;
-        entry.subsystem  = ini.get(section, "subsystem");
-        entry.vendor_id  = ini.get(section, "vendor_id");
-        entry.product_id = ini.get(section, "product_id");
+        entry.subsystem  = (std::string)ini.get(section, "subsystem");
+        entry.vendor_id  = (std::string)ini.get(section, "vendor_id");
+        entry.product_id = (std::string)ini.get(section, "product_id");
         entry.driver_name = driver_name;
 
         // 从注册表取回调

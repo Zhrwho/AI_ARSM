@@ -31,8 +31,8 @@ Value::Value(double value) : m_type(V_DOUBLE)
     *this = value;
 }
 /* C风格字符串，不需要进行类型转换了，因为m_value就是string类 */
-Value::Value(const char* value) : m_type(V_STRING), m_value(value) { }
-Value::Value(const std::string& value): m_type(V_STRING), m_value(value) { }
+Value::Value(const char* value) : m_value(value), m_type(V_STRING) { }
+Value::Value(const std::string& value): m_value(value), m_type(V_STRING) { }
 Value::~Value() { }
 
 /* 获取当前Value类型 */

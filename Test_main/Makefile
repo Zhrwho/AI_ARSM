@@ -1,74 +1,77 @@
-#编译器
+# 编译器
 CXX      := g++
 CXXFLAGS := -std=c++14 -Wall -Wextra
 LDFLAGS  := -pthread
 
+# 动态库名
+LIB_NAME := libmysmw.so
+
 # 源文件目录
-UTILITY_DIR := ../Smw/utility
+UTILITY_DIR  := ../Smw/utility
+SMW_DIR      := ../Smw
+IMU_DIR      := ../IMU
+SPEED_DIR    := ../Speed
+UTIL_TEST_DIR := $(UTILITY_DIR)/Test
 
-# 公共源文件
-COMMON_SRCS := \
-	$(UTILITY_DIR)/Logger.cpp \
-	$(UTILITY_DIR)/CurrentThread.cpp \
-	$(UTILITY_DIR)/Thread.cpp \
-	$(UTILITY_DIR)/EventLoop.cpp \
-	$(UTILITY_DIR)/EventLoopThread.cpp \
-	$(UTILITY_DIR)/EventLoopThreadPool.cpp
+# 自动收集源文件（排除 Test 目录）
+UTILITY_SRCS := $(filter-out $(UTILITY_DIR)/Test/%,$(wildcard $(UTILITY_DIR)/*.cpp))
+SMW_SRCS     := $(filter-out $(SMW_DIR)/Test/%,$(wildcard $(SMW_DIR)/*.cpp))
+IMU_SRCS     := $(wildcard $(IMU_DIR)/**/*.cpp)
+SPEED_SRCS   := $(wildcard $(SPEED_DIR)/**/*.cpp)
 
-.PHONY: all main test_main test_subloop test_framework clean
+# 合并所有源文件
+ALL_COMMON_SRCS := $(UTILITY_SRCS) $(SMW_SRCS) $(IMU_SRCS) $(SPEED_SRCS)
 
-all: main
+# 包含目录
+INCLUDES := -I$(UTILITY_DIR) -I$(SMW_DIR) -I$(IMU_DIR)
 
-# 主程序
-main:
-	$(CXX) $(CXXFLAGS) main.cpp \
-		$(UTILITY_DIR)/ClassFactory.cpp \
-		$(COMMON_SRCS) \
-		../Smw/Sensor_manager.cpp \
-		../IMU/WT61/WT61.cpp \
-		../Speed/BRT38/BRT38.cpp \
-		../Speed/OID-R5008D/OID-R5008D.cpp \
-		-I$(UTILITY_DIR) \
-		-I../Smw/ \
-		-I../IMU/ \
-		$(LDFLAGS) -ludev -o main.out
+# 让可执行文件在同级目录找到 .so（不需要设 LD_LIBRARY_PATH）
+RPATH := -Wl,-rpath,'$$ORIGIN'
 
-# 测试真实传感器插拔
-test_main:
-	$(CXX) $(CXXFLAGS) test_main.cpp \
-		$(UTILITY_DIR)/ClassFactory.cpp \
-		$(COMMON_SRCS) \
-		../Smw/Sensor_manager.cpp \
-		../IMU/WT61/WT61.cpp \
-		../Speed/BRT38/BRT38.cpp \
-		../Speed/OID-R5008D/OID-R5008D.cpp \
-		-I$(UTILITY_DIR) \
-		-I../Smw/ \
-		-I../IMU/ \
-		$(LDFLAGS) -ludev -o test_main.out
+# 动态库链接参数
+# --no-as-needed 确保 .so 始终被加载，工厂注册的静态全局对象才能执行
+LIB_LINK := -Wl,--no-as-needed -L. -lmysmw -Wl,--as-needed
 
-# 测试 EventLoop + select
-test_subloop:
-	$(CXX) $(CXXFLAGS) test_subloop.cpp \
-		$(COMMON_SRCS) \
-		-I$(UTILITY_DIR) \
-		-I../Smw/ \
-		$(LDFLAGS) -o test_subloop.out
+# 自动收集 utility/Test 下的测试程序
+UTIL_TESTS := $(basename $(wildcard $(UTIL_TEST_DIR)/*_test.cpp))
 
-# 完整的测试框架（单元测试+集成测试）
-test_framework:
-	$(CXX) $(CXXFLAGS) test_framework.cpp \
-		$(UTILITY_DIR)/ClassFactory.cpp \
-		$(COMMON_SRCS) \
-		../Smw/Sensor_manager.cpp \
-		../IMU/WT61/WT61.cpp \
-		../Speed/BRT38/BRT38.cpp \
-		../Speed/OID-R5008D/OID-R5008D.cpp \
-		-I$(UTILITY_DIR) \
-		-I../Smw/ \
-		-I../IMU/ \
-		$(LDFLAGS) -ludev -o test_framework.out
+.PHONY: all lib main test_main test_subloop test_framework utility_tests clean
 
-# 删除编译生成的文件
+all: lib main
+
+# ==================== 动态库 ====================
+lib: $(LIB_NAME)
+
+$(LIB_NAME): $(ALL_COMMON_SRCS)
+	$(CXX) $(CXXFLAGS) -shared -fPIC $^ $(INCLUDES) $(LDFLAGS) -ludev -o $@
+	@echo ">>> $(LIB_NAME) 编译完成"
+
+# ==================== 主程序（链接动态库） ====================
+main: main.cpp $(LIB_NAME)
+	$(CXX) $(CXXFLAGS) main.cpp $(INCLUDES) $(LDFLAGS) $(LIB_LINK) $(RPATH) -o main.out
+	@echo ">>> main.out 编译完成"
+
+# ==================== 测试：真实传感器插拔 ====================
+test_main: test_main.cpp $(LIB_NAME)
+	$(CXX) $(CXXFLAGS) test_main.cpp $(INCLUDES) $(LDFLAGS) $(LIB_LINK) $(RPATH) -o test_main.out
+
+# ==================== 测试：EventLoop + select ====================
+test_subloop: test_subloop.cpp $(LIB_NAME)
+	$(CXX) $(CXXFLAGS) test_subloop.cpp $(INCLUDES) $(LDFLAGS) $(LIB_LINK) $(RPATH) -o test_subloop.out
+
+# ==================== 完整测试框架 ====================
+test_framework: test_framework.cpp $(LIB_NAME)
+	$(CXX) $(CXXFLAGS) test_framework.cpp $(INCLUDES) $(LDFLAGS) $(LIB_LINK) $(RPATH) -ludev -o test_framework.out
+
+# ==================== utility/Test 下的独立测试 ====================
+utility_tests: $(UTIL_TESTS)
+
+# utility/Test 下的测试程序（静态编译，不依赖动态库）
+$(UTIL_TEST_DIR)/%: $(UTIL_TEST_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) $< $(UTILITY_SRCS) $(INCLUDES) $(LDFLAGS) -o $@
+
+# ==================== 清理 ====================
 clean:
 	rm -f *.out
+	rm -f *.so
+	rm -f $(UTIL_TEST_DIR)/*_test

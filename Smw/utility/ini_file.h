@@ -14,6 +14,7 @@
 #include <string.h>
 #include <string>
 #include <map>
+#include <vector>
 #include "Singleton.h"
 
 #include "value.h"
@@ -61,6 +62,9 @@ public:
     /* 判断 key 是否存在 */
     bool has(const string& section, const string& key);
 
+    /* 获取所有 section 名（用于遍历配置） */
+    std::vector<string> GetSectionNames() const;
+
     /* 删除整个section */
     void remove(const string& section);
     /* 删除某个key */
@@ -77,4 +81,3 @@ private:
     string m_filename;
     std::map<string,Section> m_sections;
 };
-

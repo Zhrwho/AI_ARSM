@@ -207,3 +207,11 @@ using std::string;
             it->second.erase(key);
         }
     }
+/* 获取所有 section 名 */
+std::vector<std::string> IniFile::GetSectionNames() const {
+    std::vector<std::string> names;
+    for (const auto& pair : m_sections) {
+        names.push_back(pair.first);
+    }
+    return names;
+}

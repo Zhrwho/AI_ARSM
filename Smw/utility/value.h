@@ -76,7 +76,7 @@ public:
     operator int();
     operator double();
     operator bool();
-    operator std::string();
+    // operator std::string();
     operator std::string() const;
     
 private:

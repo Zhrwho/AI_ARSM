@@ -57,7 +57,7 @@ int BRT38::Init()
     }
 
     /* 配置串口参数 */
-    struct termios new_cfg = { 0 };
+    struct termios new_cfg = {};
     cfmakeraw(&new_cfg);            // 设置为原始模式
 	cfsetspeed(&new_cfg, B9600);    // 将波特率设置为9600
 

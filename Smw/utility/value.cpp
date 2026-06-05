@@ -160,10 +160,10 @@ Value::operator bool()
         return false;
     return false;
 }
-Value::operator std::string()
-{
-    return m_value;
-}
+// Value::operator std::string()
+// {
+//     return m_value;
+// }
 Value::operator std::string() const
 {
     return m_value;
